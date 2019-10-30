@@ -14,15 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+using Newtonsoft.Json;
+using SharpDX;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using System.Xml;
-using Newtonsoft.Json;
-using SharpDX;
 using xivModdingFramework.General.Enums;
 using xivModdingFramework.Helpers;
 using xivModdingFramework.Items.Interfaces;
@@ -39,6 +40,9 @@ namespace xivModdingFramework.Models.FileTypes
     {
         private readonly DirectoryInfo _gameDirectory;
         private readonly XivDataFile _dataFile;
+        private  IItem _item;
+        private  XivMdl _xivMdl;
+        private string _hairSklbName;
 
         public Sklb(DirectoryInfo gameDirectory, XivDataFile dataFile)
         {
@@ -55,12 +59,15 @@ namespace xivModdingFramework.Models.FileTypes
         /// </remarks>
         /// <param name="item">The item we are getting the skeleton for</param>
         /// <param name="model">The model we are getting the skeleton for</param>
-        public void CreateSkelFromSklb(IItem item, XivMdl model)
+        public async Task CreateSkelFromSklb(IItem item, XivMdl model)
         {
-            var hasAssetcc = File.Exists(Directory.GetCurrentDirectory() + "/AssetCc2.exe");
-
+            var hasAssetcc = File.Exists(Directory.GetCurrentDirectory() + "\\AssetCc2.exe");
+            
             if (hasAssetcc)
             {
+                _item = item;
+                _xivMdl = model;
+
                 var mdlFile = Path.GetFileNameWithoutExtension(model.MdlPath.File);
 
                 var sklbName = mdlFile.Substring(0, 5);
@@ -69,6 +76,21 @@ namespace xivModdingFramework.Models.FileTypes
                 {
                     sklbName = mdlFile.Substring(5, 5);
                 }
+                else if (item.ItemCategory.Equals(XivStrings.Hair))
+                {
+                    var hBones = (from bone in model.PathData.BoneList where bone.Contains("x_h") select bone).ToList();
+
+                    if (hBones.Count > 0)
+                    {
+                        sklbName = hBones[0].Substring(hBones[0].IndexOf("x_h") + 2, 5);
+                    }
+                    else
+                    {
+                        sklbName = mdlFile.Substring(5, 5);
+                    }
+
+                    _hairSklbName = sklbName;
+                }
 
                 var skelLoc = Directory.GetCurrentDirectory() + "\\Skeletons\\";
 
@@ -76,7 +98,7 @@ namespace xivModdingFramework.Models.FileTypes
 
                 if (!File.Exists(skelLoc + sklbName + ".xml"))
                 {
-                    GetSkeleton(mdlFile, item.ItemCategory);
+                    await GetSkeleton(mdlFile, item.ItemCategory);
 
                     var proc = new Process
                     {
@@ -98,7 +120,7 @@ namespace xivModdingFramework.Models.FileTypes
             }
             else
             {
-                throw new Exception("AssetCc2 could not be found.");
+                throw new FileNotFoundException("AssetCc2 could not be found.");
             }
         }
 
@@ -107,13 +129,15 @@ namespace xivModdingFramework.Models.FileTypes
         /// </summary>
         /// <param name="modelName">The name of the model</param>
         /// <param name="category">The items category</param>
-        private void GetSkeleton(string modelName, string category)
+        private async Task GetSkeleton(string modelName, string category)
         {
             var index = new Index(_gameDirectory);
             var dat = new Dat(_gameDirectory);
 
             var skelFolder = "";
             var skelFile = "";
+            var slotAbr = "";
+
             if (modelName[0].Equals('w'))
             {
                 skelFolder = string.Format(XivStrings.WeapSkelFolder, modelName.Substring(1, 4), "0001");
@@ -131,31 +155,54 @@ namespace xivModdingFramework.Models.FileTypes
             }
             else
             {
-                var abr = SlotAbbreviationDictionary[category];
+                slotAbr = SlotAbbreviationDictionary[category];
 
                 var id = modelName.Substring(6, 4);
 
-                if (abr.Equals("base"))
+                if (_item.ItemCategory.Equals(XivStrings.Hair))
+                {
+                    id = _hairSklbName.Substring(1);
+                }
+
+                if (slotAbr.Equals("base"))
                 {
                     id = "0001";
                 }
 
-                skelFolder = string.Format(XivStrings.EquipSkelFolder, modelName.Substring(1, 4), abr, abr[0], id);
-                skelFile = string.Format(XivStrings.EquipSkelFile, modelName.Substring(1, 4), abr[0], id);
+                skelFolder = string.Format(XivStrings.EquipSkelFolder, modelName.Substring(1, 4), slotAbr, slotAbr[0], id);
+                skelFile = string.Format(XivStrings.EquipSkelFile, modelName.Substring(1, 4), slotAbr[0], id);
             }
 
             // Continue only if the skeleton file exists
-            if (!index.FileExists(HashGenerator.GetHash(skelFile), HashGenerator.GetHash(skelFolder), _dataFile)
-            ) return;
+            if (!await index.FileExists(HashGenerator.GetHash(skelFile), HashGenerator.GetHash(skelFolder), _dataFile))
+            {
+                // Sometimes for face skeletons id 0001 does not exist but 0002 does
+                if (_item.ItemCategory.Equals(XivStrings.Face))
+                {
 
-            var offset = index.GetDataOffset(HashGenerator.GetHash(skelFolder), HashGenerator.GetHash(skelFile), _dataFile);
+                    skelFolder = string.Format(XivStrings.EquipSkelFolder, modelName.Substring(1, 4), slotAbr, slotAbr[0], "0002");
+                    skelFile = string.Format(XivStrings.EquipSkelFile, modelName.Substring(1, 4), slotAbr[0], "0002");
+
+                    if (!await index.FileExists(HashGenerator.GetHash(skelFile), HashGenerator.GetHash(skelFolder),
+                        _dataFile))
+                    {
+                        return;
+                    }
+                }
+                else
+                {
+                    return;
+                }
+            }
+
+            var offset = await index.GetDataOffset(HashGenerator.GetHash(skelFolder), HashGenerator.GetHash(skelFile), _dataFile);
 
             if (offset == 0)
             {
                 throw new Exception($"Could not find offest for {skelFolder}/{skelFile}");
             }
 
-            var sklbData = dat.GetType2Data(offset, _dataFile);
+            var sklbData = await dat.GetType2Data(offset, _dataFile);
 
             using (var br = new BinaryReader(new MemoryStream(sklbData)))
             {
@@ -197,6 +244,10 @@ namespace xivModdingFramework.Models.FileTypes
                 {
                     mName = modelName.Substring(5, 5);
                 }
+                else if (category.Equals(XivStrings.Hair))
+                {
+                    mName = _hairSklbName;
+                }
 
                 File.WriteAllBytes(Directory.GetCurrentDirectory() + "/Skeletons/" + mName + ".sklb", havokData);
             }
@@ -206,7 +257,7 @@ namespace xivModdingFramework.Models.FileTypes
         /// Parses the sklb file
         /// </summary>
         /// <param name="skelLoc">The location of the skeleton file</param>
-        private static void ParseSkeleton(string skelLoc)
+        private void ParseSkeleton(string skelLoc)
         {
             var skelData = new SkeletonData();
             var jsonBones = new List<string>();
@@ -356,11 +407,77 @@ namespace xivModdingFramework.Models.FileTypes
                 jsonBones.Add(JsonConvert.SerializeObject(skelData));
             }
 
-            File.WriteAllLines(Path.ChangeExtension(skelLoc, ".skel"), jsonBones.ToArray());
+            if (_item.ItemCategory.Equals(XivStrings.Head) || _item.ItemCategory.Equals(XivStrings.Hair) || _item.ItemCategory.Equals(XivStrings.Face))
+            {
+                AddToRaceSkeleton(jsonBones);
+            }
+            else
+            {
+                File.WriteAllLines(Path.ChangeExtension(skelLoc, ".skel"), jsonBones.ToArray());
+            }
 
             File.Delete(Path.ChangeExtension(skelLoc, ".sklb"));
             File.Delete(Path.ChangeExtension(skelLoc, ".xml"));
         }
+
+        private void AddToRaceSkeleton(List<string> jsonBones)
+        {
+            var race = "";
+            var raceSkeletonData = new List<SkeletonData>();
+            var newSkeletonData = new List<SkeletonData>();
+            var raceBoneNames = new List<string>();
+
+            if (_item.ItemCategory.Equals(XivStrings.Head) || _item.ItemCategory.Equals(XivStrings.Hair) || _item.ItemCategory.Equals(XivStrings.Face))
+            {
+                race = _xivMdl.MdlPath.File.Substring(0, 5);
+            }
+
+            var skelLoc = Directory.GetCurrentDirectory() + "\\Skeletons\\";
+
+            if (File.Exists(skelLoc + race + ".skel"))
+            {
+                var skeletonData = File.ReadAllLines(skelLoc + race + ".skel");
+
+                foreach (var b in skeletonData)
+                {
+                    var j = JsonConvert.DeserializeObject<SkeletonData>(b);
+
+                    raceSkeletonData.Add(j);
+                    raceBoneNames.Add(j.BoneName);
+                }
+
+                foreach (var jsonBone in jsonBones)
+                {
+                    var bone = JsonConvert.DeserializeObject<SkeletonData>(jsonBone);
+                    newSkeletonData.Add(bone);
+                }
+
+                foreach (var jsonBone in jsonBones)
+                {
+                    var bone = JsonConvert.DeserializeObject<SkeletonData>(jsonBone);
+
+                    if (!raceBoneNames.Contains(bone.BoneName))
+                    {
+                        var baseBone = (from jBones in newSkeletonData
+                            where jBones.BoneNumber == bone.BoneParent
+                            select jBones).First();
+
+                        var raceMatchBone = (from rBones in raceSkeletonData
+                            where rBones.BoneName.Equals(baseBone.BoneName)
+                            select rBones).First();
+
+                        var lastBoneNum = raceSkeletonData.Last().BoneNumber;
+
+                        bone.BoneNumber = lastBoneNum + 1;
+                        bone.BoneParent = raceMatchBone.BoneNumber;
+
+                        raceSkeletonData.Add(bone);
+                        File.AppendAllText(skelLoc + race + ".skel", Environment.NewLine + JsonConvert.SerializeObject(bone));
+                    }
+                }
+            }
+        }
+
 
         /// <summary>
         /// A dictionary containing the slot abbreviations
@@ -387,7 +504,8 @@ namespace xivModdingFramework.Models.FileTypes
             {XivStrings.Iris, "face"},
             {XivStrings.Etc, "face"},
             {XivStrings.Accessory, "base"},
-            {XivStrings.Hair, "hair"}
+            {XivStrings.Hair, "hair"},
+            {XivStrings.Tail, "base" }
         };
     }
 }

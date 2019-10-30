@@ -14,7 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+using System;
 using System.ComponentModel;
+using System.Linq;
 
 namespace xivModdingFramework.General.Enums
 {
@@ -49,6 +51,22 @@ namespace xivModdingFramework.General.Enums
             var field = value.GetType().GetField(value.ToString());
             var attribute = (DescriptionAttribute[])field.GetCustomAttributes(typeof(DescriptionAttribute), false);
             return attribute.Length > 0 ? attribute[0].Description : value.ToString();
+        }
+
+        /// <summary>
+        /// Gets the enum value from the description
+        /// </summary>
+        /// <param name="value">The language string</param>
+        /// <returns>The XivLanguage enum</returns>
+        public static XivLanguage GetXivLanguage(string value)
+        {
+            //esrinzou for china ffxiv
+            if (value == "zh")
+                return XivLanguage.Chinese;
+            //esrinzou end
+            var languages = Enum.GetValues(typeof(XivLanguage)).Cast<XivLanguage>();
+
+            return languages.FirstOrDefault(language => language.GetLanguageCode() == value);
         }
     }
 }

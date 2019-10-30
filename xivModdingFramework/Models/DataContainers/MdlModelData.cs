@@ -66,19 +66,19 @@ namespace xivModdingFramework.Models.DataContainers
         public short BoneListCount { get; set; }
 
         /// <summary>
-        /// The number of Mesh Hiders
+        /// The number of Mesh Shapes
         /// </summary>
-        public short MeshHiderInfoCount { get; set; }
+        public short ShapeCount { get; set; }
 
         /// <summary>
-        /// The number of data blocks in the mesh hiders
+        /// The number of data blocks in the mesh shapes
         /// </summary>
-        public short MeshHiderDataCount { get; set; }
+        public short ShapeDataCount { get; set; }
 
         /// <summary>
-        /// The total number of indices that the mesh hider uses
+        /// The total number of indices that the mesh shapes uses
         /// </summary>
-        public short MeshHiderIndexCount { get; set; }
+        public short ShapeIndexCount { get; set; }
 
         /// <summary>
         /// Unknown Usage
@@ -128,7 +128,12 @@ namespace xivModdingFramework.Models.DataContainers
         /// <summary>
         /// Unknown Usage
         /// </summary>
-        public short Unknown10 { get; set; }
+        public byte Unknown10a { get; set; }
+
+        /// <summary>
+        /// Unknown Usage
+        /// </summary>
+        public byte Unknown10b { get; set; }
 
         /// <summary>
         /// Unknown Usage

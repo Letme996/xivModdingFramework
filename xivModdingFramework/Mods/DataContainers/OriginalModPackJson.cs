@@ -14,16 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-using System;
-using xivModdingFramework.General.Enums;
-using xivModdingFramework.Items.Interfaces;
 
-namespace xivModdingFramework.Items.DataContainers
+namespace xivModdingFramework.Mods.DataContainers
 {
-    /// <summary>
-    /// This class holds information for Generic Items with models
-    /// </summary>
-    public class XivGenericItemModel : IItemModel
+    public class OriginalModPackJson
     {
         /// <summary>
         /// The name of the item
@@ -31,40 +25,28 @@ namespace xivModdingFramework.Items.DataContainers
         public string Name { get; set; }
 
         /// <summary>
-        /// The Main Category
+        /// The item category
         /// </summary>
         public string Category { get; set; }
 
         /// <summary>
-        /// The item Category
+        /// The full path of the item data for the game
         /// </summary>
-        public string ItemCategory { get; set; }
+        public string FullPath { get; set; }
 
         /// <summary>
-        /// The item SubCategory
+        /// The offset to where the mod data is located
         /// </summary>
-        public string ItemSubCategory { get; set; }
+        public long ModOffset { get; set; }
 
         /// <summary>
-        /// The data file the item belongs to
+        /// The size of the mod data
         /// </summary>
-        public XivDataFile DataFile { get; set; }
+        public int ModSize { get; set; }
 
         /// <summary>
-        /// The Model Information for the gear item
+        /// The dat file associated with the item
         /// </summary>
-        public XivModelInfo ModelInfo { get; set; }
-
-        public int CompareTo(object obj)
-        {
-            return string.Compare(Name, ((XivGenericItemModel)obj).Name, StringComparison.Ordinal);
-        }
-
-        public object Clone()
-        {
-            var copy = (XivGenericItemModel)this.MemberwiseClone();
-            copy.ModelInfo = (XivModelInfo)ModelInfo.Clone();
-            return copy;
-        }
+        public string DatFile { get; set; }
     }
 }

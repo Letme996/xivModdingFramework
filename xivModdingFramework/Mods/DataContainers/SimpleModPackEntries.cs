@@ -14,49 +14,60 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+using System;
+
 namespace xivModdingFramework.Mods.DataContainers
 {
-    public class ModInfo
+    public class SimpleModPackEntries : IComparable<SimpleModPackEntries>
     {
         /// <summary>
-        /// The modified items category
+        /// The name of the item
         /// </summary>
-        public string category { get; set; }
+        public string Name { get; set; }
 
         /// <summary>
-        /// The modified items name
+        /// The category of the item
         /// </summary>
-        public string name { get; set; }
+        public string Category { get; set; }
 
         /// <summary>
-        /// The internal path of the modified item
+        /// The race associated with the mod
         /// </summary>
-        public string fullPath { get; set; }
+        public string Race { get; set; }
 
         /// <summary>
-        /// The oringial offset of the modified item
+        /// The item part
         /// </summary>
-        /// <remarks>
-        /// Used to revert to the items original texture
-        /// </remarks>
-        public int originalOffset { get; set; }
+        public string Part { get; set; }
 
         /// <summary>
-        /// The modified offset of the modified item
+        /// The item number
         /// </summary>
-        public int modOffset { get; set; }
+        public string Num { get; set; }
 
         /// <summary>
-        /// The size of the modified items data
+        /// The item texture map
         /// </summary>
-        /// <remarks>
-        /// When importing a previously modified texture, this value is used to determine whether the modified data will be overwritten
-        /// </remarks>
-        public int modSize { get; set; }
+        public string Map { get; set; }
 
         /// <summary>
-        /// The dat file where the modified item is located
+        /// The status of the mod
         /// </summary>
-        public string datFile { get; set; }
+        public bool Active { get; set; }
+
+        /// <summary>
+        /// The mod entry
+        /// </summary>
+        public Mod ModEntry { get; set; }
+
+        /// <summary>
+        /// The json mod entry
+        /// </summary>
+        public ModsJson JsonEntry { get; set; }
+
+        public int CompareTo(SimpleModPackEntries obj)
+        {
+            return Name.CompareTo(obj.Name);
+        }
     }
 }

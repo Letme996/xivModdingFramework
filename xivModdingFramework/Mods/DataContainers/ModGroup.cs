@@ -14,19 +14,28 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-using SharpDX;
 using System.Collections.Generic;
 
-namespace xivModdingFramework.Models.DataContainers
+namespace xivModdingFramework.Mods.DataContainers
 {
-    /// <summary>
-    /// This class contains the properties for the Bounding Box of the model
-    /// </summary>
-    public class BoundingBox
+    public class ModGroup
     {
         /// <summary>
-        /// The list of point floats used by the bounding box
+        /// The name of the mod options group
         /// </summary>
-        public List<Vector4> PointList { get; set; }
+        public string GroupName { get; set; }
+
+        /// <summary>
+        /// The type of selection for the options in the group
+        /// </summary>
+        /// <remarks>
+        /// This is either Single Selection or Multi Selection
+        /// </remarks>
+        public string SelectionType { get; set; }
+
+        /// <summary>
+        /// The list of options in the group
+        /// </summary>
+        public List<ModOption> OptionList { get; set; }
     }
 }

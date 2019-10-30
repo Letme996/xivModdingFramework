@@ -14,19 +14,30 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-using SharpDX;
-using System.Collections.Generic;
+using System;
 
-namespace xivModdingFramework.Models.DataContainers
+namespace xivModdingFramework.General.DataContainers
 {
-    /// <summary>
-    /// This class contains the properties for the Bounding Box of the model
-    /// </summary>
-    public class BoundingBox
+    public class SearchResults : IComparable<SearchResults>
     {
         /// <summary>
-        /// The list of point floats used by the bounding box
+        /// The slot for the item
         /// </summary>
-        public List<Vector4> PointList { get; set; }
+        public string Slot { get; set; }
+
+        /// <summary>
+        /// The body for the item
+        /// </summary>
+        public string Body { get; set; }
+
+        /// <summary>
+        /// The variant for the item
+        /// </summary>
+        public int Variant { get; set; }
+
+        public int CompareTo(SearchResults results)
+        {
+            return Variant.CompareTo(results.Variant);
+        }
     }
 }

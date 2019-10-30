@@ -81,14 +81,14 @@ namespace xivModdingFramework.Models.DataContainers
         public List<BoneIndexMesh> BoneIndexMeshList { get; set; }
 
         /// <summary>
-        /// The data containing the information for mesh hiding
+        /// The data containing the information for mesh shapes
         /// </summary>
-        public MeshHiderData MeshHideData { get; set; }
+        public ShapeData MeshShapeData { get; set; }
 
         /// <summary>
         /// The data containing the information for the bone indices used by mesh parts
         /// </summary>
-        public BoneIndexPart BonIndexPart { get; set; }
+        public BoneIndexPart BoneIndexPart { get; set; }
 
         /// <summary>
         /// The size of the padded bytes immediately following 
@@ -111,8 +111,25 @@ namespace xivModdingFramework.Models.DataContainers
         public List<BoneTransformData> BoneTransformDataList { get; set; }
 
         /// <summary>
-        /// Flag set when the model has hider data
+        /// Flag set when the model has shape data
         /// </summary>
-        public bool HasHiderData { get; set; }
+        public bool HasShapeData { get; set; }
+
+        /// <summary>
+        /// The list containing the info for each etra Level of Detail of the model
+        /// </summary>
+        /// <remarks>
+        /// This happens when the sum of all LoD mesh counts is less than the model data mesh count.
+        /// The number of extra LoDs seems to be the value of Unknown10
+        /// </remarks>
+        public List<LevelOfDetail> ExtraLoDList { get; set; }
+
+        /// <summary>
+        /// The list of extra MeshData for the Model
+        /// </summary>
+        /// <remarks>
+        /// This happens when the sum of all LoD mesh counts is less than the model data mesh count
+        /// </remarks>
+        public List<MeshData> ExtraMeshData { get; set; }
     }
 }

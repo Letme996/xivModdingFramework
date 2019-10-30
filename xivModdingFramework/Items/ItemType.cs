@@ -43,8 +43,8 @@ namespace xivModdingFramework.Items
             {
                 itemType = XivItemType.weapon;
             }
-            else if (item.ItemCategory.Equals(XivStrings.Ears) || item.ItemCategory.Equals(XivStrings.Neck) || 
-                     item.ItemCategory.Equals(XivStrings.Wrists) || item.ItemCategory.Equals(XivStrings.Rings))
+            else if (item.Category.Equals(XivStrings.Gear) && (item.ItemCategory.Equals(XivStrings.Ears) || item.ItemCategory.Equals(XivStrings.Neck) || 
+                     item.ItemCategory.Equals(XivStrings.Wrists) || item.ItemCategory.Equals(XivStrings.Rings)))
             {
                 itemType = XivItemType.accessory;
             }
@@ -65,7 +65,7 @@ namespace xivModdingFramework.Items
             {
                 itemType = XivItemType.ui;
             }
-            else if (item.ItemCategory.Equals(XivStrings.Furniture))
+            else if (item.Category.Equals(XivStrings.Housing))
             {
                 itemType = XivItemType.furniture;
             }

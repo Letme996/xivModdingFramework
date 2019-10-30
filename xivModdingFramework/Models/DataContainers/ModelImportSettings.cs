@@ -36,8 +36,28 @@ namespace xivModdingFramework.Models.DataContainers
         public bool Disable { get; set; }
 
         /// <summary>
-        /// The mesh part dictionary
+        /// The material index associated with this mesh
         /// </summary>
-        public Dictionary<int, int> PartDictionary { get; set; }
+        public short MaterialIndex { get; set; }
+
+        /// <summary>
+        /// The mesh part list
+        /// </summary>
+        public List<int> PartList { get; set; }
+
+        /// <summary>
+        /// The mesh part dictionary containing (mesh part, attribute index)
+        /// </summary>
+        public Dictionary<int, int> PartAttributeDictionary { get; set; } = new Dictionary<int, int>();
+
+        /// <summary>
+        /// The bones for the model
+        /// </summary>
+        public List<string> ExtraBones { get; set; }
+
+        /// <summary>
+        /// Determines whether the vertex alpha value is flipped for vertex colors
+        /// </summary>
+        public bool FlipAlpha { get; set; }
     }
 }

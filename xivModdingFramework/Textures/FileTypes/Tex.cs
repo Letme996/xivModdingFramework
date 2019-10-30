@@ -14,21 +14,23 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+using ImageMagick;
+using ImageMagick.Defines;
+using SharpDX;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Newtonsoft.Json;
-using SharpDX;
+using System.Threading.Tasks;
 using xivModdingFramework.General.Enums;
 using xivModdingFramework.Helpers;
 using xivModdingFramework.Items;
+using xivModdingFramework.Items.DataContainers;
 using xivModdingFramework.Items.Enums;
 using xivModdingFramework.Items.Interfaces;
 using xivModdingFramework.Materials.DataContainers;
 using xivModdingFramework.Materials.FileTypes;
-using xivModdingFramework.Mods.DataContainers;
-using xivModdingFramework.Mods.FileTypes;
+using xivModdingFramework.Mods;
 using xivModdingFramework.Resources;
 using xivModdingFramework.SqPack.FileTypes;
 using xivModdingFramework.Textures.DataContainers;
@@ -44,25 +46,90 @@ namespace xivModdingFramework.Textures.FileTypes
     {
         private const string TexExtension = ".tex";
         private readonly DirectoryInfo _gameDirectory;
-        private readonly DirectoryInfo _modListDirectory;
+        private readonly Index _index;
+        private readonly Dat _dat;
+        private readonly XivDataFile _dataFile;
+        private Dictionary<string, int> _indexFileDictionary;
+        private readonly object texLock = new object();
 
         public Tex(DirectoryInfo gameDirectory)
         {
             _gameDirectory = gameDirectory;
-
-            _modListDirectory = new DirectoryInfo(Path.Combine(gameDirectory.Parent.Parent.FullName, XivStrings.ModlistFilePath));
+            _index = new Index(_gameDirectory);
+            _dat = new Dat(_gameDirectory);
         }
 
-        public XivTex GetTexData(TexTypePath ttp)
+        public Tex(DirectoryInfo gameDirectory, XivDataFile dataFile)
+        {
+            _gameDirectory = gameDirectory;
+            _index = new Index(_gameDirectory);
+            _dat = new Dat(_gameDirectory);
+            _dataFile = dataFile;
+        }
+
+        public async Task<XivTex> GetTexData(TexTypePath ttp)
         {
             var folder = Path.GetDirectoryName(ttp.Path);
             folder = folder.Replace("\\", "/");
             var file = Path.GetFileName(ttp.Path);
+            var offset = 0;
 
-            var index = new Index(_gameDirectory);
-            var dat = new Dat(_gameDirectory);
+            var hashedfolder = 0;
+            var hashedfile = 0;
 
-            var offset = index.GetDataOffset(HashGenerator.GetHash(folder), HashGenerator.GetHash(file), ttp.DataFile);
+            lock (texLock)
+            {
+                hashedfolder = HashGenerator.GetHash(folder);
+                hashedfile = HashGenerator.GetHash(file);
+            }
+
+            offset = await _index.GetDataOffset(hashedfolder, hashedfile, ttp.DataFile);
+
+            if (offset == 0)
+            {
+                throw new Exception($"Could not find offset for {ttp.Path}");
+            }
+
+            XivTex xivTex;
+
+            try
+            {
+                if (ttp.Path.Contains(".atex"))
+                {
+                    var atex = new ATex(_gameDirectory, ttp.DataFile);
+                    xivTex = await atex.GetATexData(offset);
+                }
+                else
+                {
+                    xivTex = await _dat.GetType4Data(offset, ttp.DataFile);
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"There was an error reading texture data at offset {offset}");
+            }
+
+            xivTex.TextureTypeAndPath = ttp;
+
+            return xivTex;
+        }
+
+        public async Task GetIndexFileDictionary()
+        {
+            _indexFileDictionary = await _index.GetFileDictionary(_dataFile);
+        }
+
+        public async Task<XivTex> GetTexDataPreFetchedIndex(TexTypePath ttp)
+        {
+            var folder = Path.GetDirectoryName(ttp.Path);
+            folder = folder.Replace("\\", "/");
+            var file = Path.GetFileName(ttp.Path);
+            var offset = 0;
+
+            lock (texLock)
+            {
+                offset = _indexFileDictionary[$"{HashGenerator.GetHash(file)}{HashGenerator.GetHash(folder)}"];
+            }
 
             if (offset == 0)
             {
@@ -71,14 +138,21 @@ namespace xivModdingFramework.Textures.FileTypes
 
             XivTex xivTex;
 
-            if (ttp.Path.Contains(".atex"))
+            try
             {
-                var atex = new ATex(_gameDirectory, ttp.DataFile);
-                xivTex = atex.GetATexData(offset);
+                if (ttp.Path.Contains(".atex"))
+                {
+                    var atex = new ATex(_gameDirectory, ttp.DataFile);
+                    xivTex = await atex.GetATexData(offset);
+                }
+                else
+                {
+                    xivTex = await _dat.GetType4Data(offset, ttp.DataFile);
+                }
             }
-            else
+            catch (Exception ex)
             {
-                xivTex = dat.GetType4Data(offset, ttp.DataFile);
+                throw new Exception($"There was an error reading texture data at offset {offset}");
             }
 
             xivTex.TextureTypeAndPath = ttp;
@@ -92,7 +166,7 @@ namespace xivModdingFramework.Textures.FileTypes
         /// <param name="itemModel">An item that contains model data</param>
         /// <param name="xivRace">The race for the requested data</param>
         /// <returns>A list of part characters</returns>
-        public List<string> GetTexturePartList(IItemModel itemModel, XivRace xivRace, XivDataFile dataFile)
+        public async Task<List<string>> GetTexturePartList(IItemModel itemModel, XivRace xivRace, XivDataFile dataFile, string type = "Primary")
         {
             var itemType = ItemType.GetItemType(itemModel);
 
@@ -102,16 +176,25 @@ namespace xivModdingFramework.Textures.FileTypes
             {
                 // Get the mtrl version for the given item from the imc file
                 var imc = new Imc(_gameDirectory, dataFile);
-                version = imc.GetImcInfo(itemModel, itemModel.ModelInfo).Version.ToString().PadLeft(4, '0');
+                version = (await imc.GetImcInfo(itemModel, itemModel.ModelInfo)).Version.ToString().PadLeft(4, '0');
             }
 
             var id = itemModel.ModelInfo.ModelID.ToString().PadLeft(4, '0');
             var bodyVer = itemModel.ModelInfo.Body.ToString().PadLeft(4, '0');
+
+            if (type.Equals("Secondary"))
+            {
+                var xivGear = itemModel as XivGear;
+
+                id = xivGear.SecondaryModelInfo.ModelID.ToString().PadLeft(4, '0');
+                bodyVer = xivGear.SecondaryModelInfo.Body.ToString().PadLeft(4, '0');
+
+                var imc = new Imc(_gameDirectory, xivGear.DataFile);
+                version = (await imc.GetImcInfo(itemModel, xivGear.SecondaryModelInfo)).Version.ToString().PadLeft(4, '0'); ;
+            }
+
             var parts = new[] { 'a', 'b', 'c', 'd', 'e', 'f' };
             var race = xivRace.GetRaceCode();
-
-            var index = new Index(_gameDirectory);
-
 
             string mtrlFolder = "", mtrlFile = "";
 
@@ -160,8 +243,17 @@ namespace xivModdingFramework.Textures.FileTypes
                     }
                     break;
                 case XivItemType.furniture:
-                    mtrlFolder = $"bgcommon/hou/indoor/general/{id}/material";
-                    mtrlFile = $"fun_b0_m{id}_0";
+                    if (itemModel.ItemCategory.Equals(XivStrings.Furniture_Indoor))
+                    {
+                        mtrlFolder = $"bgcommon/hou/indoor/general/{id}/material";
+                        mtrlFile = $"fun_b0_m{id}_0";
+                    }
+                    else if (itemModel.ItemCategory.Equals(XivStrings.Furniture_Outdoor))
+                    {
+                        mtrlFolder = $"bgcommon/hou/outdoor/general/{id}/material";
+                        mtrlFile = $"gar_b0_m{id}_0";
+                    }
+
                     break;
                 default:
                     mtrlFolder = "";
@@ -169,42 +261,48 @@ namespace xivModdingFramework.Textures.FileTypes
             }
 
             // Get a list of hashed mtrl files that are in the given folder
-            var files = index.GetAllHashedFilesInFolder(HashGenerator.GetHash(mtrlFolder), dataFile);
+            var files = await _index.GetAllHashedFilesInFolder(HashGenerator.GetHash(mtrlFolder), dataFile);
 
             // append the part char to the mtrl file and see if its hashed value is within the files list
             var partList =
                 (from part in parts
-                    let mtrlCheck = mtrlFile + part + ".mtrl"
-                    where files.Contains(HashGenerator.GetHash(mtrlCheck))
-                    select part.ToString()).ToList();
+                 let mtrlCheck = mtrlFile + part + ".mtrl"
+                 where files.Contains(HashGenerator.GetHash(mtrlCheck))
+                 select part.ToString()).ToList();
 
             if (partList.Count < 1 && itemType == XivItemType.furniture)
             {
-                mtrlFile = $"fun_b0_m{id}_1";
+                if (itemModel.ItemCategory.Equals(XivStrings.Furniture_Indoor))
+                {
+                    mtrlFile = $"fun_b0_m{id}_1";
+                }
+                else if (itemModel.ItemCategory.Equals(XivStrings.Furniture_Outdoor))
+                {
+                    mtrlFile = $"gar_b0_m{id}_1";
+                }
 
                 // Get a list of hashed mtrl files that are in the given folder
-                files = index.GetAllHashedFilesInFolder(HashGenerator.GetHash(mtrlFolder), dataFile);
+                files = await _index.GetAllHashedFilesInFolder(HashGenerator.GetHash(mtrlFolder), dataFile);
 
                 // append the part char to the mtrl file and see if its hashed value is within the files list
                 partList =
                     (from part in parts
-                        let mtrlCheck = mtrlFile + part + ".mtrl"
-                        where files.Contains(HashGenerator.GetHash(mtrlCheck))
-                        select part.ToString()).ToList();
+                     let mtrlCheck = mtrlFile + part + ".mtrl"
+                     where files.Contains(HashGenerator.GetHash(mtrlCheck))
+                     select part.ToString()).ToList();
             }
 
             // returns the list of parts that exist within the mtrl folder
             return partList;
         }
 
-        public Dictionary<string, string> GetMapAvailableTex(string path)
+        public async Task<Dictionary<string, string>> GetMapAvailableTex(string path)
         {
             var mapNamePathDictonary = new Dictionary<string, string>();
-            var index = new Index(_gameDirectory);
 
             var folderPath = $"ui/map/{path}";
 
-            var files = index.GetAllHashedFilesInFolder(HashGenerator.GetHash(folderPath), XivDataFile._06_Ui);
+            var files = await _index.GetAllHashedFilesInFolder(HashGenerator.GetHash(folderPath), XivDataFile._06_Ui);
 
             foreach (var mapType in MapTypeDictionary)
             {
@@ -219,9 +317,9 @@ namespace xivModdingFramework.Textures.FileTypes
             return mapNamePathDictonary;
         }
 
-        public void SaveTexAsDDS(IItem item, XivTex xivTex, DirectoryInfo saveDirectory)
+        public void SaveTexAsDDS(IItem item, XivTex xivTex, DirectoryInfo saveDirectory, XivRace race = XivRace.All_Races)
         {
-            var path = IOUtil.MakeItemSavePath(item, saveDirectory);
+            var path = IOUtil.MakeItemSavePath(item, saveDirectory, race);
 
             Directory.CreateDirectory(path);
 
@@ -235,47 +333,50 @@ namespace xivModdingFramework.Textures.FileTypes
         /// </summary>
         /// <param name="xivTex">The texture data</param>
         /// <returns>A byte array with the image data</returns>
-        public byte[] GetImageData(XivTex xivTex)
+        public Task<byte[]> GetImageData(XivTex xivTex)
         {
-            byte[] imageData = null;
-
-            switch (xivTex.TextureFormat)
+            return Task.Run(async () =>
             {
-                case XivTexFormat.DXT1:
-                    imageData = DxtUtil.DecompressDxt1(xivTex.TexData, xivTex.Width, xivTex.Height);
-                    break;
-                case XivTexFormat.DXT3:
-                    imageData = DxtUtil.DecompressDxt3(xivTex.TexData, xivTex.Width, xivTex.Height);
-                    break;
-                case XivTexFormat.DXT5:
-                    imageData = DxtUtil.DecompressDxt5(xivTex.TexData, xivTex.Width, xivTex.Height);
-                    break;
-                case XivTexFormat.A4R4G4B4:
-                    imageData = Read4444Image(xivTex.TexData, xivTex.Width, xivTex.Height);
-                    break;
-                case XivTexFormat.A1R5G5B5:
-                    imageData = Read5551Image(xivTex.TexData, xivTex.Width, xivTex.Height);
-                    break;
-                case XivTexFormat.A8R8G8B8:
-                    imageData = SwapRBColors(xivTex.TexData, xivTex.Width, xivTex.Height);
-                    break;
-                case XivTexFormat.L8:
-                case XivTexFormat.A8:
-                    imageData = Read8bitImage(xivTex.TexData, xivTex.Width, xivTex.Height);
-                    break;
-                case XivTexFormat.X8R8G8B8:
-                case XivTexFormat.R32F:
-                case XivTexFormat.G16R16F:
-                case XivTexFormat.G32R32F:
-                case XivTexFormat.A16B16G16R16F:
-                case XivTexFormat.A32B32G32R32F:
-                case XivTexFormat.D16:
-                default:
-                    imageData = xivTex.TexData;
-                    break;
-            }
+                byte[] imageData = null;
 
-            return imageData;
+                switch (xivTex.TextureFormat)
+                {
+                    case XivTexFormat.DXT1:
+                        imageData = DxtUtil.DecompressDxt1(xivTex.TexData, xivTex.Width, xivTex.Height);
+                        break;
+                    case XivTexFormat.DXT3:
+                        imageData = DxtUtil.DecompressDxt3(xivTex.TexData, xivTex.Width, xivTex.Height);
+                        break;
+                    case XivTexFormat.DXT5:
+                        imageData = DxtUtil.DecompressDxt5(xivTex.TexData, xivTex.Width, xivTex.Height);
+                        break;
+                    case XivTexFormat.A4R4G4B4:
+                        imageData = await Read4444Image(xivTex.TexData, xivTex.Width, xivTex.Height);
+                        break;
+                    case XivTexFormat.A1R5G5B5:
+                        imageData = await Read5551Image(xivTex.TexData, xivTex.Width, xivTex.Height);
+                        break;
+                    case XivTexFormat.A8R8G8B8:
+                        imageData = await SwapRBColors(xivTex.TexData, xivTex.Width, xivTex.Height);
+                        break;
+                    case XivTexFormat.L8:
+                    case XivTexFormat.A8:
+                        imageData = await Read8bitImage(xivTex.TexData, xivTex.Width, xivTex.Height);
+                        break;
+                    case XivTexFormat.X8R8G8B8:
+                    case XivTexFormat.R32F:
+                    case XivTexFormat.G16R16F:
+                    case XivTexFormat.G32R32F:
+                    case XivTexFormat.A16B16G16R16F:
+                    case XivTexFormat.A32B32G32R32F:
+                    case XivTexFormat.D16:
+                    default:
+                        imageData = xivTex.TexData;
+                        break;
+                }
+
+                return imageData;
+            });
         }
 
         /// <summary>
@@ -285,32 +386,37 @@ namespace xivModdingFramework.Textures.FileTypes
         /// <param name="width">The textures width.</param>
         /// <param name="height">The textures height.</param>
         /// <returns>The raw byte data in 32bit</returns>
-        private static byte[] Read5551Image(byte[] textureData, int width, int height)
+        private static async Task<byte[]> Read5551Image(byte[] textureData, int width, int height)
         {
             var convertedBytes = new List<byte>();
-            using (var ms = new MemoryStream(textureData))
+
+            await Task.Run(() =>
             {
-                using (var br = new BinaryReader(ms))
+                using (var ms = new MemoryStream(textureData))
                 {
-                    for (var y = 0; y < height; y++)
+                    using (var br = new BinaryReader(ms))
                     {
-                        for (var x = 0; x < width; x++)
+                        for (var y = 0; y < height; y++)
                         {
-                            var pixel = br.ReadUInt16() & 0xFFFF;
+                            for (var x = 0; x < width; x++)
+                            {
+                                var pixel = br.ReadUInt16() & 0xFFFF;
 
-                            var red = ((pixel & 0x7E00) >> 10) * 8;
-                            var green = ((pixel & 0x3E0) >> 5) * 8;
-                            var blue = ((pixel & 0x1F)) * 8;
-                            var alpha = ((pixel & 0x8000) >> 15) * 255;
+                                var red = ((pixel & 0x7E00) >> 10) * 8;
+                                var green = ((pixel & 0x3E0) >> 5) * 8;
+                                var blue = ((pixel & 0x1F)) * 8;
+                                var alpha = ((pixel & 0x8000) >> 15) * 255;
 
-                            convertedBytes.Add((byte)red);
-                            convertedBytes.Add((byte)green);
-                            convertedBytes.Add((byte)blue);
-                            convertedBytes.Add((byte)alpha);
+                                convertedBytes.Add((byte) red);
+                                convertedBytes.Add((byte) green);
+                                convertedBytes.Add((byte) blue);
+                                convertedBytes.Add((byte) alpha);
+                            }
                         }
                     }
                 }
-            }
+            });
+
             return convertedBytes.ToArray();
         }
 
@@ -322,31 +428,35 @@ namespace xivModdingFramework.Textures.FileTypes
         /// <param name="width">The textures width.</param>
         /// <param name="height">The textures height.</param>
         /// <returns>The raw byte data in 32bit</returns>
-        private static byte[] Read4444Image(byte[] textureData, int width, int height)
+        private static async Task<byte[]> Read4444Image(byte[] textureData, int width, int height)
         {
             var convertedBytes = new List<byte>();
-            using (var ms = new MemoryStream(textureData))
-            {
-                using (var br = new BinaryReader(ms))
-                {
-                    for (var y = 0; y < height; y++)
-                    {
-                        for (var x = 0; x < width; x++)
-                        {
-                            var pixel = br.ReadUInt16() & 0xFFFF;
-                            var red = ((pixel & 0xF)) * 16;
-                            var green = ((pixel & 0xF0) >> 4) * 16;
-                            var blue = ((pixel & 0xF00) >> 8) * 16;
-                            var alpha = ((pixel & 0xF000) >> 12) * 16;
 
-                            convertedBytes.Add((byte)blue);
-                            convertedBytes.Add((byte)green);
-                            convertedBytes.Add((byte)red);
-                            convertedBytes.Add((byte)alpha);
+            await Task.Run(() =>
+            {
+                using (var ms = new MemoryStream(textureData))
+                {
+                    using (var br = new BinaryReader(ms))
+                    {
+                        for (var y = 0; y < height; y++)
+                        {
+                            for (var x = 0; x < width; x++)
+                            {
+                                var pixel = br.ReadUInt16() & 0xFFFF;
+                                var red = ((pixel & 0xF)) * 16;
+                                var green = ((pixel & 0xF0) >> 4) * 16;
+                                var blue = ((pixel & 0xF00) >> 8) * 16;
+                                var alpha = ((pixel & 0xF000) >> 12) * 16;
+
+                                convertedBytes.Add((byte) blue);
+                                convertedBytes.Add((byte) green);
+                                convertedBytes.Add((byte) red);
+                                convertedBytes.Add((byte) alpha);
+                            }
                         }
                     }
                 }
-            }
+            });
 
             return convertedBytes.ToArray();
         }
@@ -358,27 +468,32 @@ namespace xivModdingFramework.Textures.FileTypes
         /// <param name="width">The textures width.</param>
         /// <param name="height">The textures height.</param>
         /// <returns>The created bitmap.</returns>
-        private static byte[] Read8bitImage(byte[] textureData, int width, int height)
+        private static async Task<byte[]> Read8bitImage(byte[] textureData, int width, int height)
         {
             var convertedBytes = new List<byte>();
-            using (var ms = new MemoryStream(textureData))
-            {
-                using (var br = new BinaryReader(ms))
-                {
-                    for (var y = 0; y < height; y++)
-                    {
-                        for (var x = 0; x < width; x++)
-                        {
-                            var pixel = br.ReadByte() & 0xFF;
 
-                            convertedBytes.Add((byte)pixel);
-                            convertedBytes.Add((byte)pixel);
-                            convertedBytes.Add((byte)pixel);
-                            convertedBytes.Add(255);
+            await Task.Run(() =>
+            {
+                using (var ms = new MemoryStream(textureData))
+                {
+                    using (var br = new BinaryReader(ms))
+                    {
+                        for (var y = 0; y < height; y++)
+                        {
+                            for (var x = 0; x < width; x++)
+                            {
+                                var pixel = br.ReadByte() & 0xFF;
+
+                                convertedBytes.Add((byte) pixel);
+                                convertedBytes.Add((byte) pixel);
+                                convertedBytes.Add((byte) pixel);
+                                convertedBytes.Add(255);
+                            }
                         }
                     }
                 }
-            }
+            });
+
             return convertedBytes.ToArray();
         }
 
@@ -389,30 +504,34 @@ namespace xivModdingFramework.Textures.FileTypes
         /// <param name="width">The textures width.</param>
         /// <param name="height">The textures height.</param>
         /// <returns>The raw byte data in 32bit</returns>
-        private static byte[] SwapRBColors(byte[] textureData, int width, int height)
+        private static async Task<byte[]> SwapRBColors(byte[] textureData, int width, int height)
         {
             var convertedBytes = new List<byte>();
-            using (var ms = new MemoryStream(textureData))
-            {
-                using (var br = new BinaryReader(ms))
-                {
-                    for (var y = 0; y < height; y++)
-                    {
-                        for (var x = 0; x < width; x++)
-                        {
-                            var red = br.ReadByte();
-                            var green = br.ReadByte();
-                            var blue = br.ReadByte();
-                            var alpha = br.ReadByte();
 
-                            convertedBytes.Add(blue);
-                            convertedBytes.Add(green);
-                            convertedBytes.Add(red);
-                            convertedBytes.Add(alpha);
+            await Task.Run(() =>
+            {
+                using (var ms = new MemoryStream(textureData))
+                {
+                    using (var br = new BinaryReader(ms))
+                    {
+                        for (var y = 0; y < height; y++)
+                        {
+                            for (var x = 0; x < width; x++)
+                            {
+                                var red = br.ReadByte();
+                                var green = br.ReadByte();
+                                var blue = br.ReadByte();
+                                var alpha = br.ReadByte();
+
+                                convertedBytes.Add(blue);
+                                convertedBytes.Add(green);
+                                convertedBytes.Add(red);
+                                convertedBytes.Add(alpha);
+                            }
                         }
                     }
                 }
-            }
+            });
 
             return convertedBytes.ToArray();
         }
@@ -424,26 +543,16 @@ namespace xivModdingFramework.Textures.FileTypes
         /// <param name="item">The item who's texture we are importing</param>
         /// <param name="ddsFileDirectory">The directory of the dds file being imported</param>
         /// <returns>The offset to the new imported data</returns>
-        public int TexDDSImporter(XivTex xivTex, IItem item, DirectoryInfo ddsFileDirectory)
+        public async Task<int> TexDDSImporter(XivTex xivTex, IItem item, DirectoryInfo ddsFileDirectory, string source)
         {
-            int lineNum = 0, offset = 0;
-            var inModList = false;
-            ModInfo modInfo = null;
+            var offset = 0;
 
-            var dat = new Dat(_gameDirectory);
-            var modlist = new ModList(_gameDirectory);
+            var modding = new Modding(_gameDirectory);
 
             if (File.Exists(ddsFileDirectory.FullName))
             {
                 // Check if the texture being imported has been imported before
-                var modInfoData = modlist.TryGetModEntry(xivTex.TextureTypeAndPath.Path);
-
-                if (modInfoData != null)
-                {
-                    modInfo = modInfoData.Value.ModInfo;
-                    lineNum = modInfoData.Value.LineNum;
-                    inModList = true;
-                }
+                var modEntry = await modding.TryGetModEntry(xivTex.TextureTypeAndPath.Path);
 
                 using (var br = new BinaryReader(File.OpenRead(ddsFileDirectory.FullName)))
                 {
@@ -505,20 +614,19 @@ namespace xivModdingFramework.Textures.FileTypes
 
                     if (textureType == xivTex.TextureFormat)
                     {
-
                         var uncompressedLength = (int)new FileInfo(ddsFileDirectory.FullName).Length - 128;
                         var newTex = new List<byte>();
 
                         if (!xivTex.TextureTypeAndPath.Path.Contains(".atex"))
                         {
-                            var DDSInfo = DDS.ReadDDS(br, xivTex, newWidth, newHeight, newMipCount);
+                            var DDSInfo = await DDS.ReadDDS(br, xivTex, newWidth, newHeight, newMipCount);
 
-                            newTex.AddRange(dat.MakeType4DatHeader(xivTex, DDSInfo.mipPartOffsets, DDSInfo.mipPartCounts, uncompressedLength, newMipCount, newWidth, newHeight));
+                            newTex.AddRange(_dat.MakeType4DatHeader(xivTex, DDSInfo.mipPartOffsets, DDSInfo.mipPartCounts, uncompressedLength, newMipCount, newWidth, newHeight));
                             newTex.AddRange(MakeTextureInfoHeader(xivTex, newWidth, newHeight, newMipCount));
                             newTex.AddRange(DDSInfo.compressedDDS);
 
-                            offset = dat.WriteToDat(newTex, modInfo, inModList, xivTex.TextureTypeAndPath.Path,
-                                item.ItemCategory, item.Name, lineNum, xivTex.TextureTypeAndPath.DataFile);
+                            offset = await _dat.WriteToDat(newTex, modEntry, xivTex.TextureTypeAndPath.Path,
+                                item.ItemCategory, item.Name, xivTex.TextureTypeAndPath.DataFile, source, 4);
                         }
                         else
                         {
@@ -526,8 +634,8 @@ namespace xivModdingFramework.Textures.FileTypes
                             newTex.AddRange(MakeTextureInfoHeader(xivTex, newWidth, newHeight, newMipCount));
                             newTex.AddRange(br.ReadBytes(uncompressedLength));
 
-                            offset = dat.ImportType2Data(newTex.ToArray(), item.Name, xivTex.TextureTypeAndPath.Path,
-                                item.ItemCategory);
+                            offset = await _dat.ImportType2Data(newTex.ToArray(), item.Name, xivTex.TextureTypeAndPath.Path,
+                                item.ItemCategory, source);
                         }
                     }
                     else
@@ -544,7 +652,300 @@ namespace xivModdingFramework.Textures.FileTypes
             return offset;
         }
 
-        public int TexColorImporter(XivMtrl xivMtrl, DirectoryInfo ddsFileDirectory, IItem item)
+        public async Task<int> TexBMPImporter(XivTex xivTex, IItem item, DirectoryInfo bmpFileDirectory, string source)
+        {
+            var offset = 0;
+
+            var modding = new Modding(_gameDirectory);
+
+            if (File.Exists(bmpFileDirectory.FullName))
+            {
+                // Check if the texture being imported has been imported before
+                var modEntry = await modding.TryGetModEntry(xivTex.TextureTypeAndPath.Path);
+
+                using (var magickImage = new MagickImage(bmpFileDirectory.FullName))
+                {
+                    switch (xivTex.TextureFormat)
+                    {
+                        case XivTexFormat.DXT1:
+                            magickImage.Format = MagickFormat.Dxt1;
+                            break;
+                        case XivTexFormat.DXT5:
+                            magickImage.Format = MagickFormat.Dxt5;
+                            break;
+                        case XivTexFormat.A8R8G8B8:
+                            magickImage.Format = MagickFormat.Dds;
+                            magickImage.Settings.SetDefines(new DdsWriteDefines
+                            {
+                                Compression = DdsCompression.None
+                            });
+                            break;
+                        default:
+                            throw new Exception($"Format {xivTex.TextureFormat} is not currently supported for BMP import\n\nPlease use the DDS import option instead.");
+                    }
+
+                    var data = magickImage.ToByteArray();
+
+                    using (var br = new BinaryReader(new MemoryStream(data)))
+                    {
+                        br.BaseStream.Seek(12, SeekOrigin.Begin);
+
+                        var newHeight = br.ReadInt32();
+                        var newWidth = br.ReadInt32();
+                        br.ReadBytes(8);
+                        var newMipCount = br.ReadInt32();
+
+                        if (newHeight % 2 != 0 || newWidth % 2 != 0)
+                        {
+                            throw new Exception("Resolution must be a multiple of 2");
+                        }
+
+                        br.BaseStream.Seek(80, SeekOrigin.Begin);
+
+                        var textureFlags = br.ReadInt32();
+                        var texType = br.ReadInt32();
+                        XivTexFormat textureType;
+
+                        if (DDSType.ContainsKey(texType))
+                        {
+                            textureType = DDSType[texType];
+                        }
+                        else
+                        {
+                            throw new Exception($"DDS Type ({texType}) not recognized.");
+                        }
+
+                        switch (textureFlags)
+                        {
+                            case 2 when textureType == XivTexFormat.A8R8G8B8:
+                                textureType = XivTexFormat.A8;
+                                break;
+                            case 65 when textureType == XivTexFormat.A8R8G8B8:
+                                var bpp = br.ReadInt32();
+                                if (bpp == 32)
+                                {
+                                    textureType = XivTexFormat.A8R8G8B8;
+                                }
+                                else
+                                {
+                                    var red = br.ReadInt32();
+
+                                    switch (red)
+                                    {
+                                        case 31744:
+                                            textureType = XivTexFormat.A1R5G5B5;
+                                            break;
+                                        case 3840:
+                                            textureType = XivTexFormat.A4R4G4B4;
+                                            break;
+                                    }
+                                }
+
+                                break;
+                        }
+
+                        if (textureType == xivTex.TextureFormat)
+                        {
+                            var uncompressedLength = data.Length;
+                            var newTex = new List<byte>();
+
+                            if (!xivTex.TextureTypeAndPath.Path.Contains(".atex"))
+                            {
+                                var DDSInfo = await DDS.ReadDDS(br, xivTex, newWidth, newHeight, newMipCount);
+
+                                newTex.AddRange(_dat.MakeType4DatHeader(xivTex, DDSInfo.mipPartOffsets, DDSInfo.mipPartCounts, uncompressedLength, newMipCount, newWidth, newHeight));
+                                newTex.AddRange(MakeTextureInfoHeader(xivTex, newWidth, newHeight, newMipCount));
+                                newTex.AddRange(DDSInfo.compressedDDS);
+
+                                offset = await _dat.WriteToDat(newTex, modEntry, xivTex.TextureTypeAndPath.Path,
+                                    item.ItemCategory, item.Name, xivTex.TextureTypeAndPath.DataFile, source, 4);
+                            }
+                            else
+                            {
+                                br.BaseStream.Seek(128, SeekOrigin.Begin);
+                                newTex.AddRange(MakeTextureInfoHeader(xivTex, newWidth, newHeight, newMipCount));
+                                newTex.AddRange(br.ReadBytes(uncompressedLength));
+
+                                offset = await _dat.ImportType2Data(newTex.ToArray(), item.Name, xivTex.TextureTypeAndPath.Path,
+                                    item.ItemCategory, source);
+                            }
+                        }
+                        else
+                        {
+                            throw new Exception($"Incorrect file type. Expected: {xivTex.TextureFormat}  Given: {textureType}");
+                        }
+                    }
+                }
+            }
+            else
+            {
+                throw new IOException($"Could not find file: {bmpFileDirectory.FullName}");
+            }
+
+            return offset;
+        }
+
+        /// <summary>
+        /// Converts a DDS file into a TEX file then returns the raw data
+        /// </summary>
+        /// <param name="xivTex">The texture data</param>
+        /// <param name="item">The item who's texture we are importing</param>
+        /// <param name="ddsFileDirectory">The directory of the dds file being imported</param>
+        /// <returns>The offset to the new imported data</returns>
+        public async Task<byte[]> DDStoTexData(XivTex xivTex, IItem item, DirectoryInfo ddsFileDirectory)
+        {
+            if (File.Exists(ddsFileDirectory.FullName))
+            {
+                using (var br = new BinaryReader(File.OpenRead(ddsFileDirectory.FullName)))
+                {
+                    br.BaseStream.Seek(12, SeekOrigin.Begin);
+
+                    var newHeight = br.ReadInt32();
+                    var newWidth = br.ReadInt32();
+                    br.ReadBytes(8);
+                    var newMipCount = br.ReadInt32();
+
+                    if (newHeight % 2 != 0 || newWidth % 2 != 0)
+                    {
+                        throw new Exception("Resolution must be a multiple of 2");
+                    }
+
+                    br.BaseStream.Seek(80, SeekOrigin.Begin);
+
+                    var textureFlags = br.ReadInt32();
+                    var texType = br.ReadInt32();
+                    XivTexFormat textureType;
+
+                    if (DDSType.ContainsKey(texType))
+                    {
+                        textureType = DDSType[texType];
+                    }
+                    else
+                    {
+                        throw new Exception($"DDS Type ({texType}) not recognized.");
+                    }
+
+                    switch (textureFlags)
+                    {
+                        case 2 when textureType == XivTexFormat.A8R8G8B8:
+                            textureType = XivTexFormat.A8;
+                            break;
+                        case 65 when textureType == XivTexFormat.A8R8G8B8:
+                            var bpp = br.ReadInt32();
+                            if (bpp == 32)
+                            {
+                                textureType = XivTexFormat.A8R8G8B8;
+                            }
+                            else
+                            {
+                                var red = br.ReadInt32();
+
+                                switch (red)
+                                {
+                                    case 31744:
+                                        textureType = XivTexFormat.A1R5G5B5;
+                                        break;
+                                    case 3840:
+                                        textureType = XivTexFormat.A4R4G4B4;
+                                        break;
+                                }
+                            }
+
+                            break;
+                    }
+
+                    if (textureType == xivTex.TextureFormat)
+                    {
+                        var uncompressedLength = (int)new FileInfo(ddsFileDirectory.FullName).Length - 128;
+                        var newTex = new List<byte>();
+
+                        if (!xivTex.TextureTypeAndPath.Path.Contains(".atex"))
+                        {
+                            var DDSInfo = await DDS.ReadDDS(br, xivTex, newWidth, newHeight, newMipCount);
+
+                            newTex.AddRange(_dat.MakeType4DatHeader(xivTex, DDSInfo.mipPartOffsets, DDSInfo.mipPartCounts, uncompressedLength, newMipCount, newWidth, newHeight));
+                            newTex.AddRange(MakeTextureInfoHeader(xivTex, newWidth, newHeight, newMipCount));
+                            newTex.AddRange(DDSInfo.compressedDDS);
+
+                            return newTex.ToArray();
+                        }
+                        else
+                        {
+                            br.BaseStream.Seek(128, SeekOrigin.Begin);
+                            newTex.AddRange(MakeTextureInfoHeader(xivTex, newWidth, newHeight, newMipCount));
+                            newTex.AddRange(br.ReadBytes(uncompressedLength));
+
+                            return newTex.ToArray();
+                        }
+                    }
+                    else
+                    {
+                        throw new Exception($"Incorrect file type. Expected: {xivTex.TextureFormat}  Given: {textureType}");
+                    }
+                }
+            }
+            else
+            {
+                throw new IOException($"Could not find file: {ddsFileDirectory.FullName}");
+            }
+        }
+
+
+        /// <summary>
+        /// Imports a ColorSet file
+        /// </summary>
+        /// <param name="xivMtrl">The XivMtrl data of the original</param>
+        /// <param name="ddsFileDirectory">The dds directory of the new ColorSet</param>
+        /// <param name="item">The item</param>
+        /// <param name="source">The source importing the file</param>
+        /// <returns>The new offset</returns>
+        public async Task<int> TexColorImporter(XivMtrl xivMtrl, DirectoryInfo ddsFileDirectory, IItem item, string source, XivLanguage lang)
+        {
+            var colorSetData = new List<Half>();
+            byte[] colorSetExtraData = null;
+
+            using (var br = new BinaryReader(File.OpenRead(ddsFileDirectory.FullName)))
+            {
+                // skip DDS header
+                br.BaseStream.Seek(128, SeekOrigin.Begin);
+
+                // color data is always 512 (4w x 16h = 64 x 8bpp = 512)
+                // this reads 256 ushort values which is 256 x 2 = 512
+                for (var i = 0; i < 256; i++)
+                {
+                    colorSetData.Add(new Half(br.ReadUInt16()));
+                }
+            }
+
+            // If the colorset size is 544, it contains extra data that must be imported
+            if (xivMtrl.ColorSetDataSize == 544)
+            {
+                var flagsPath = Path.Combine(Path.GetDirectoryName(ddsFileDirectory.FullName), (Path.GetFileNameWithoutExtension(ddsFileDirectory.FullName) + ".dat"));
+
+                if (File.Exists(flagsPath))
+                {
+                    // The extra data after the colorset is always 32 bytes 
+                    // This reads 16 ushort values which is 16 x 2 = 32
+                    colorSetExtraData = File.ReadAllBytes(flagsPath);
+                }
+            }
+
+            // Replace the color set data with the imported data
+            xivMtrl.ColorSetData = colorSetData;
+            xivMtrl.ColorSetExtraData = colorSetExtraData;
+
+            var mtrl = new Mtrl(_gameDirectory, xivMtrl.TextureTypePathList[0].DataFile, lang);
+            return await mtrl.ImportMtrl(xivMtrl, item, source);
+        }
+
+        /// <summary>
+        /// Converts a DDS file into a mtrl file and returns the raw data
+        /// </summary>
+        /// <param name="xivMtrl">The XivMtrl data of the original</param>
+        /// <param name="ddsFileDirectory">The dds directory of the new ColorSet</param>
+        /// <param name="item">The item</param>
+        /// <returns>The raw mtrl data</returns>
+        public byte[] DDStoMtrlData(XivMtrl xivMtrl, DirectoryInfo ddsFileDirectory, IItem item, XivLanguage lang)
         {
             var colorSetData = new List<Half>();
 
@@ -583,8 +984,8 @@ namespace xivModdingFramework.Textures.FileTypes
             // Replace the color set data with the imported data
             xivMtrl.ColorSetData = colorSetData;
 
-            var mtrl = new Mtrl(_gameDirectory, xivMtrl.TextureTypePathList[0].DataFile);
-            return mtrl.ImportMtrl(xivMtrl, item);
+            var mtrl = new Mtrl(_gameDirectory, xivMtrl.TextureTypePathList[0].DataFile, lang);
+            return mtrl.CreateMtrlFile(xivMtrl, item);
         }
 
         /// <summary>

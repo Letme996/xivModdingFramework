@@ -19,7 +19,7 @@ namespace xivModdingFramework.Resources {
     // class via a tool like ResGen or Visual Studio.
     // To add or remove a member, edit your .ResX file then rerun ResGen
     // with the /str option, or rebuild your VS project.
-    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "15.0.0.0")]
+    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "16.0.0.0")]
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
     internal class XivStrings {
@@ -232,6 +232,15 @@ namespace xivModdingFramework.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Autodesk Collada.
+        /// </summary>
+        internal static string AutodeskCollada {
+            get {
+                return ResourceManager.GetString("AutodeskCollada", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Bahamut-Egi.
         /// </summary>
         internal static string Bahamut_Egi {
@@ -331,11 +340,29 @@ namespace xivModdingFramework.Resources {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to chara/human/c{0}/obj/body/b{1}/material.
+        ///   Looks up a localized string similar to chara/human/c{0}/obj/body/b{1}/material/v0001.
         /// </summary>
         internal static string BodyMtrlFolder {
             get {
                 return ResourceManager.GetString("BodyMtrlFolder", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to chara/human/c{0}/obj/body/b{1}/material.
+        /// </summary>
+        internal static string BodyMtrlFolderOld {
+            get {
+                return ResourceManager.GetString("BodyMtrlFolderOld", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to chara/human/c{0}/obj/body/b{1}/material/v{2}.
+        /// </summary>
+        internal static string BodyMtrlFolderVar {
+            get {
+                return ResourceManager.GetString("BodyMtrlFolderVar", resourceCulture);
             }
         }
         
@@ -552,6 +579,42 @@ namespace xivModdingFramework.Resources {
         internal static string Ears {
             get {
                 return ResourceManager.GetString("Ears", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to c{0}z{1}_{2}.mdl.
+        /// </summary>
+        internal static string EarsMDLFile {
+            get {
+                return ResourceManager.GetString("EarsMDLFile", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to chara/human/c{0}/obj/zear/z{1}/model.
+        /// </summary>
+        internal static string EarsMDLFolder {
+            get {
+                return ResourceManager.GetString("EarsMDLFolder", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to mt_c{0}z{1}_{2}{3}.mtrl.
+        /// </summary>
+        internal static string EarsMtrlFile {
+            get {
+                return ResourceManager.GetString("EarsMtrlFile", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to chara/human/c{0}/obj/zear/z{1}/material.
+        /// </summary>
+        internal static string EarsMtrlFolder {
+            get {
+                return ResourceManager.GetString("EarsMtrlFolder", resourceCulture);
             }
         }
         
@@ -934,11 +997,20 @@ namespace xivModdingFramework.Resources {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Furniture.
+        ///   Looks up a localized string similar to Indoor Furniture.
         /// </summary>
-        internal static string Furniture {
+        internal static string Furniture_Indoor {
             get {
-                return ResourceManager.GetString("Furniture", resourceCulture);
+                return ResourceManager.GetString("Furniture_Indoor", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Outdoor Furniture.
+        /// </summary>
+        internal static string Furniture_Outdoor {
+            get {
+                return ResourceManager.GetString("Furniture_Outdoor", resourceCulture);
             }
         }
         
@@ -1056,6 +1128,24 @@ namespace xivModdingFramework.Resources {
         internal static string Housing {
             get {
                 return ResourceManager.GetString("Housing", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Hrothgar.
+        /// </summary>
+        internal static string Hrothgar {
+            get {
+                return ResourceManager.GetString("Hrothgar", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Hrothgar NPC.
+        /// </summary>
+        internal static string Hrothgar_NPC {
+            get {
+                return ResourceManager.GetString("Hrothgar_NPC", resourceCulture);
             }
         }
         
@@ -1191,6 +1281,15 @@ namespace xivModdingFramework.Resources {
         internal static string Index_Backup {
             get {
                 return ResourceManager.GetString("Index_Backup", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Inner Ear.
+        /// </summary>
+        internal static string InnerEar {
+            get {
+                return ResourceManager.GetString("InnerEar", resourceCulture);
             }
         }
         
@@ -1735,11 +1834,38 @@ namespace xivModdingFramework.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to OpenCOLLADA.
+        /// </summary>
+        internal static string OpenCollada {
+            get {
+                return ResourceManager.GetString("OpenCollada", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Other.
         /// </summary>
         internal static string Other {
             get {
                 return ResourceManager.GetString("Other", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Outer Ear.
+        /// </summary>
+        internal static string OuterEar {
+            get {
+                return ResourceManager.GetString("OuterEar", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Paintings.
+        /// </summary>
+        internal static string Paintings {
+            get {
+                return ResourceManager.GetString("Paintings", resourceCulture);
             }
         }
         
@@ -1960,11 +2086,29 @@ namespace xivModdingFramework.Resources {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to chara/human/c{0}/obj/tail/t{1}/material.
+        ///   Looks up a localized string similar to chara/human/c{0}/obj/tail/t{1}/material/v0001.
         /// </summary>
         internal static string TailMtrlFolder {
             get {
                 return ResourceManager.GetString("TailMtrlFolder", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to chara/human/c{0}/obj/tail/t{1}/material.
+        /// </summary>
+        internal static string TailMtrlFolderOld {
+            get {
+                return ResourceManager.GetString("TailMtrlFolderOld", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to chara/human/c{0}/obj/tail/t{1}/material/v{2}.
+        /// </summary>
+        internal static string TailMtrlFolderVar {
+            get {
+                return ResourceManager.GetString("TailMtrlFolderVar", resourceCulture);
             }
         }
         
@@ -2001,6 +2145,24 @@ namespace xivModdingFramework.Resources {
         internal static string UIFile {
             get {
                 return ResourceManager.GetString("UIFile", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Viera.
+        /// </summary>
+        internal static string Viera {
+            get {
+                return ResourceManager.GetString("Viera", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Viera NPC.
+        /// </summary>
+        internal static string Viera_NPC {
+            get {
+                return ResourceManager.GetString("Viera_NPC", resourceCulture);
             }
         }
         

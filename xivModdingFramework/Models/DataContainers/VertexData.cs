@@ -14,9 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-using System.Collections.Generic;
-using HelixToolkit.Wpf.SharpDX.Core;
 using SharpDX;
+using System.Collections.Generic;
+using HelixToolkit.SharpDX.Core;
 
 namespace xivModdingFramework.Models.DataContainers
 {
@@ -73,6 +73,11 @@ namespace xivModdingFramework.Models.DataContainers
         /// The vertex color data in Byte4 format (A, R, G, B)
         /// </summary>
         public List<Color> Colors { get; set; }
+
+        /// <summary>
+        /// The vertex color data in Color4 format
+        /// </summary>
+        public Color4Collection Colors4 { get; set; }
 
         /// <summary>
         /// The primary texture coordinates for the mesh in Vector2 format (X, Y)

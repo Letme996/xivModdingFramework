@@ -18,14 +18,19 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using xivModdingFramework.Exd.Enums;
 using xivModdingFramework.Exd.FileTypes;
+using xivModdingFramework.General;
+using xivModdingFramework.General.DataContainers;
 using xivModdingFramework.General.Enums;
 using xivModdingFramework.Helpers;
 using xivModdingFramework.Items.DataContainers;
 using xivModdingFramework.Items.Enums;
 using xivModdingFramework.Resources;
 using xivModdingFramework.SqPack.FileTypes;
+using xivModdingFramework.Textures.DataContainers;
+using xivModdingFramework.Textures.Enums;
 using xivModdingFramework.Variants.FileTypes;
 
 namespace xivModdingFramework.Items.Categories
@@ -39,21 +44,25 @@ namespace xivModdingFramework.Items.Categories
     {
         private readonly DirectoryInfo _gameDirectory;
         private readonly XivLanguage _xivLanguage;
+        private readonly Index _index;
+        private static object _gearLock = new object();
+
         public Gear(DirectoryInfo gameDirectory, XivLanguage xivLanguage)
         {
             _gameDirectory = gameDirectory;
             _xivLanguage = xivLanguage;
+            _index = new Index(_gameDirectory);
         }
 
         /// <summary>
         /// A getter for available gear in the Item exd files
         /// </summary>
         /// <returns>A list containing XivGear data</returns>
-        public List<XivGear> GetGearList()
+        public async Task<List<XivGear>> GetGearList()
         {
             // These are the offsets to relevant data
             // These will need to be changed if data gets added or removed with a patch
-            const int modelDataCheckOffset = 31;
+            const int modelDataCheckOffset = 30;
             const int dataLength = 160;
             const int nameDataOffset = 14;
             const int modelDataOffset = 24;
@@ -65,15 +74,15 @@ namespace xivModdingFramework.Items.Categories
             xivGearList.AddRange(GetMissingGear());
 
             var ex = new Ex(_gameDirectory, _xivLanguage);
-            var itemDictionary = ex.ReadExData(XivEx.item);
+            var itemDictionary = await ex.ReadExData(XivEx.item);
 
             // Loops through all the items in the item exd files
             // Item files start at 0 and increment by 500 for each new file
             // Item_0, Item_500, Item_1000, etc.
-            foreach (var item in itemDictionary.Values)
+            await Task.Run(() => Parallel.ForEach(itemDictionary, (item) =>
             {
                 // This checks whether there is any model data present in the current item
-                if (item[modelDataCheckOffset] <= 0) continue;
+                if (item.Value[modelDataCheckOffset] <= 0 && item.Value[modelDataCheckOffset + 1] <= 0) return;
 
                 // Gear can have 2 separate models (MNK weapons for example)
                 var primaryMi = new XivModelInfo();
@@ -87,7 +96,7 @@ namespace xivModdingFramework.Items.Categories
                 };
 
                 /* Used to determine if the given model is a weapon
-                 * This is important because the data is formated differently
+                 * This is important because the data is formatted differently
                  * The model data is a 16 byte section separated into two 8 byte parts (primary model, secondary model)
                  * Format is 8 bytes in length with 2 bytes per data point [short, short, short, short]
                  * Gear: primary model [blank, blank, variant, ID] nothing in secondary model
@@ -96,13 +105,17 @@ namespace xivModdingFramework.Items.Categories
                 var isWeapon = false;
 
                 // Big Endian Byte Order 
-                using (var br = new BinaryReaderBE(new MemoryStream(item)))
+                using (var br = new BinaryReaderBE(new MemoryStream(item.Value)))
                 {
                     br.BaseStream.Seek(nameDataOffset, SeekOrigin.Begin);
                     var nameOffset = br.ReadInt16();
 
                     // Model Data
                     br.BaseStream.Seek(modelDataOffset, SeekOrigin.Begin);
+
+                    // Primary Model Key
+                    primaryMi.ModelKey = Quad.Read(br.ReadBytes(8), 0);
+                    br.BaseStream.Seek(-8, SeekOrigin.Current);
 
                     // Primary Blank
                     primaryMi.Unused = br.ReadInt16();
@@ -128,6 +141,11 @@ namespace xivModdingFramework.Items.Categories
 
                     // Primary Model ID
                     primaryMi.ModelID = br.ReadInt16();
+
+                    // Secondary Model Key
+                    isWeapon = false;
+                    secondaryMi.ModelKey = Quad.Read(br.ReadBytes(8), 0);
+                    br.BaseStream.Seek(-8, SeekOrigin.Current);
 
                     // Secondary Blank
                     secondaryMi.Unused = br.ReadInt16();
@@ -163,20 +181,25 @@ namespace xivModdingFramework.Items.Categories
                     int slotNum = br.ReadByte();
 
                     // Waist items do not have texture or model data
-                    if (slotNum == 6) continue;
+                    if (slotNum == 6) return;
 
+                    xivGear.EquipSlotCategory = slotNum;
                     xivGear.ItemCategory = _slotNameDictionary.ContainsKey(slotNum) ? _slotNameDictionary[slotNum] : "Unknown";
 
                     // Gear Name
                     var gearNameOffset = dataLength + nameOffset;
-                    var gearNameLength = item.Length - gearNameOffset;
+                    var gearNameLength = item.Value.Length - gearNameOffset;
                     br.BaseStream.Seek(gearNameOffset, SeekOrigin.Begin);
                     var nameString = Encoding.UTF8.GetString(br.ReadBytes(gearNameLength)).Replace("\0", "");
                     xivGear.Name = new string(nameString.Where(c => !char.IsControl(c)).ToArray());
 
-                    xivGearList.Add(xivGear);
+                    lock (_gearLock)
+                    {
+                        xivGearList.Add(xivGear);
+                    }
                 }
-            }
+            }));
+
             xivGearList.Sort();
 
             return xivGearList;
@@ -233,23 +256,22 @@ namespace xivModdingFramework.Items.Categories
         /// </remarks>
         /// <param name="xivGear">A gear item</param>
         /// <returns>A list of XivRace data</returns>
-        public List<XivRace> GetRacesForTextures(XivGear xivGear, XivDataFile dataFile)
+        public async Task<List<XivRace>> GetRacesForTextures(XivGear xivGear, XivDataFile dataFile)
         {
             // Get the material version for the item from the imc file
             var imc = new Imc(_gameDirectory, dataFile);
-            var gearVersion = imc.GetImcInfo(xivGear, xivGear.ModelInfo).Version.ToString().PadLeft(4, '0');
+            var gearVersion = (await imc.GetImcInfo(xivGear, xivGear.ModelInfo)).Version.ToString().PadLeft(4, '0');
 
             var modelID = xivGear.ModelInfo.ModelID.ToString().PadLeft(4, '0');
 
             var raceList = new List<XivRace>();
 
-            var index = new Index(_gameDirectory);
             var itemType = ItemType.GetItemType(xivGear);
             string mtrlFolder;
 
             if (itemType == XivItemType.weapon)
             {
-                return new List<XivRace>{XivRace.All_Races};
+                return new List<XivRace> { XivRace.All_Races };
             }
 
             switch (itemType)
@@ -289,7 +311,7 @@ namespace xivModdingFramework.Items.Categories
             }
 
             // get the list of hashed file names from the mtrl folder
-            var files = index.GetAllHashedFilesInFolder(HashGenerator.GetHash(mtrlFolder), dataFile);
+            var files = await _index.GetAllHashedFilesInFolder(HashGenerator.GetHash(mtrlFolder), dataFile);
 
             // Loop through each entry in the dictionary
             foreach (var testFile in testFilesDictionary)
@@ -315,7 +337,7 @@ namespace xivModdingFramework.Items.Categories
         /// </remarks>
         /// <param name="xivGear">A gear item</param>
         /// <returns>A list of XivRace data</returns>
-        public List<XivRace> GetRacesForModels(XivGear xivGear, XivDataFile dataFile)
+        public async Task<List<XivRace>> GetRacesForModels(XivGear xivGear, XivDataFile dataFile)
         {
             var itemType = ItemType.GetItemType(xivGear);
 
@@ -327,8 +349,6 @@ namespace xivModdingFramework.Items.Categories
             {
                 return new List<XivRace> { XivRace.All_Races };
             }
-
-            var index = new Index(_gameDirectory);
 
             string mdlFolder;
             var id = xivGear.ModelInfo.ModelID.ToString().PadLeft(4, '0');
@@ -345,7 +365,6 @@ namespace xivModdingFramework.Items.Categories
                     mdlFolder = "";
                     break;
             }
-
 
             var testFilesDictionary = new Dictionary<int, string>();
 
@@ -371,7 +390,7 @@ namespace xivModdingFramework.Items.Categories
             }
 
             // get the list of hashed file names from the mtrl folder
-            var files = index.GetAllHashedFilesInFolder(HashGenerator.GetHash(mdlFolder), dataFile);
+            var files = await _index.GetAllHashedFilesInFolder(HashGenerator.GetHash(mdlFolder), dataFile);
 
             // Loop through each entry in the dictionary
             foreach (var testFile in testFilesDictionary)
@@ -385,6 +404,198 @@ namespace xivModdingFramework.Items.Categories
             }
 
             return raceList;
+        }
+
+        /// <summary>
+        /// Searches for items given a model ID and item type
+        /// </summary>
+        /// <param name="modelID"> The model id used for searching</param>
+        /// <param name="type">The type of item</param>
+        /// <returns>A list of SearchResults objects</returns>
+        public async Task<List<SearchResults>> SearchGearByModelID(int modelID, string type)
+        {
+            var searchLock = new object();
+            var searchLock1 = new object();
+            var searchResultsList = new List<SearchResults>();
+            var resultCheckList = new List<string>();
+
+            var equipmentSlots = new string[] { "met", "glv", "dwn", "sho", "top", };
+            var accessorySlots = new string[] { "ear", "nek", "rir", "ril", "wrs" };
+            var parts = new string[] { "a", "b", "c", "d", "e", "f" };
+
+            var id = modelID.ToString().PadLeft(4, '0');
+            var folder = "";
+
+            if (type.Equals("Equipment"))
+            {
+                folder = $"chara/equipment/e{id}/material/v";
+            }
+            else if (type.Equals("Accessory"))
+            {
+                folder = $"chara/accessory/a{id}/material/v";
+            }
+            else if (type.Equals("Weapon"))
+            {
+                folder = $"chara/weapon/w{id}/obj/body/b";
+            }
+
+            var bodyVariantDictionary = new Dictionary<int, List<int>>();
+            List<int> variantList = null;
+
+            if (type.Equals("Weapon"))
+            {
+                await Task.Run(() => Parallel.For(1, 200, (i) =>
+                {
+                    var folderHashDictionary = new Dictionary<int, int>();
+
+                    var wFolder = $"{folder}{i.ToString().PadLeft(4, '0')}/material/v";
+
+                    Parallel.For(1, 200, (j) =>
+                    {
+                        lock (searchLock)
+                        {
+                            folderHashDictionary.Add(HashGenerator.GetHash($"{wFolder}{j.ToString().PadLeft(4, '0')}"), j);
+                        }
+                    });
+
+                    variantList = _index.GetFolderExistsList(folderHashDictionary, XivDataFile._04_Chara).Result;
+
+                    if (variantList.Count > 0)
+                    {
+                        variantList.Sort();
+
+                        lock (searchLock1)
+                        {
+                            bodyVariantDictionary.Add(i, variantList);
+                        }
+                    }
+                }));
+            }
+            else
+            {
+                var folderHashDictionary = new Dictionary<int, int>();
+
+                await Task.Run(() => Parallel.For(1, 200, (i) =>
+                {
+                    lock (searchLock)
+                    {
+                        folderHashDictionary.Add(HashGenerator.GetHash($"{folder}{i.ToString().PadLeft(4, '0')}"), i);
+                    }
+                }));
+
+                variantList = _index.GetFolderExistsList(folderHashDictionary, XivDataFile._04_Chara).Result;
+            }
+
+            if (!type.Equals("Weapon"))
+            {
+                foreach (var variant in variantList)
+                {
+                    var mtrlFolder = $"{folder}{variant.ToString().PadLeft(4, '0')}";
+                    var mtrlFile = "";
+
+                    var mtrlFolderHashes =
+                        await _index.GetAllHashedFilesInFolder(HashGenerator.GetHash(mtrlFolder), XivDataFile._04_Chara);
+
+                    foreach (var race in IDRaceDictionary.Keys)
+                    {
+                        string[] slots = null;
+
+                        if (type.Equals("Equipment"))
+                        {
+                            slots = equipmentSlots;
+                        }
+                        else if (type.Equals("Accessory"))
+                        {
+                            slots = accessorySlots;
+                        }
+
+                        foreach (var slot in slots)
+                        {
+                            foreach (var part in parts)
+                            {
+                                if (type.Equals("Equipment"))
+                                {
+                                    mtrlFile = $"mt_c{race}e{id}_{slot}_{part}.mtrl";
+                                }
+                                else if (type.Equals("Accessory"))
+                                {
+                                    mtrlFile = $"mt_c{race}a{id}_{slot}_{part}.mtrl";
+                                }
+
+                                if (mtrlFolderHashes.Contains(HashGenerator.GetHash(mtrlFile)))
+                                {
+                                    var abbrSlot = AbbreviationSlotDictionary[slot];
+                                    if (!resultCheckList.Contains($"{abbrSlot}{variant.ToString()}"))
+                                    {
+                                        searchResultsList.Add(new SearchResults { Body = "-", Slot = abbrSlot, Variant = variant });
+                                        resultCheckList.Add($"{abbrSlot}{variant.ToString()}");
+                                    }
+
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                foreach (var bodyVariant in bodyVariantDictionary)
+                {
+                    foreach (var variant in bodyVariant.Value)
+                    {
+                        searchResultsList.Add(new SearchResults { Body = bodyVariant.Key.ToString(), Slot = XivStrings.Main_Hand, Variant = variant });
+                    }
+                }
+            }
+
+            searchResultsList.Sort();
+
+
+            return searchResultsList;
+        }
+
+        /// <summary>
+        /// Gets the Icon info for a specific gear item
+        /// </summary>
+        /// <param name="gearItem">The gear item</param>
+        /// <returns>A list of TexTypePath containing Icon Info</returns>
+        public async Task<List<TexTypePath>> GetIconInfo(XivGear gearItem)
+        {
+            var ttpList = new List<TexTypePath>();
+
+            var iconString = gearItem.IconNumber.ToString();
+
+            var iconBaseNum = iconString.Substring(0, 2).PadRight(iconString.Length, '0');
+            var iconFolder = $"ui/icon/{iconBaseNum.PadLeft(6, '0')}";
+            var iconHQFolder = $"{iconFolder}/hq";
+            var iconFile = $"{iconString.PadLeft(6, '0')}.tex";
+
+            if (await _index.FileExists(HashGenerator.GetHash(iconFile), HashGenerator.GetHash(iconFolder),
+                XivDataFile._06_Ui))
+            {
+                ttpList.Add(new TexTypePath
+                {
+                    Name = "Icon",
+                    Path = $"{iconFolder}/{iconFile}",
+                    Type = XivTexType.Icon,
+                    DataFile = XivDataFile._06_Ui
+                });
+            }
+
+
+            if (await _index.FileExists(HashGenerator.GetHash(iconFile), HashGenerator.GetHash(iconHQFolder),
+                XivDataFile._06_Ui))
+            {
+                ttpList.Add(new TexTypePath
+                {
+                    Name = "HQ Icon",
+                    Path = $"{iconHQFolder}/{iconFile}",
+                    Type = XivTexType.Icon,
+                    DataFile = XivDataFile._06_Ui
+                });
+            }
+
+            return ttpList;
         }
 
         // A dictionary containg <Slot ID, Gear Category>
@@ -447,6 +658,10 @@ namespace xivModdingFramework.Items.Categories
             {"1304", XivRace.AuRa_Male_NPC},
             {"1401", XivRace.AuRa_Female},
             {"1404", XivRace.AuRa_Female_NPC},
+            {"1501", XivRace.Hrothgar},
+            {"1504", XivRace.Hrothgar_NPC},
+            {"1801", XivRace.Viera},
+            {"1804", XivRace.Viera_NPC},
             {"9104", XivRace.NPC_Male},
             {"9204", XivRace.NPC_Female}
         };
@@ -477,7 +692,22 @@ namespace xivModdingFramework.Items.Categories
             {XivStrings.Etc, "etc"},
             {XivStrings.Accessory, "acc"},
             {XivStrings.Hair, "hir"}
+        };
 
+        /// <summary>
+        /// A dictionary containing slot data in the format [Slot abbreviation, Slot Name]
+        /// </summary>
+        private static readonly Dictionary<string, string> AbbreviationSlotDictionary = new Dictionary<string, string>
+        {
+            {"met", XivStrings.Head},
+            {"glv", XivStrings.Hands},
+            {"dwn", XivStrings.Legs},
+            {"sho", XivStrings.Feet},
+            {"top", XivStrings.Body},
+            {"ear", XivStrings.Ears},
+            {"nek", XivStrings.Neck},
+            {"rir", XivStrings.Rings},
+            {"wrs", XivStrings.Wrists},
         };
     }
 }
